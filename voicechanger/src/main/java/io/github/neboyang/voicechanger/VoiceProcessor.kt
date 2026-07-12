@@ -4,6 +4,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.FilterInputStream
+import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 import java.nio.ByteBuffer
@@ -25,9 +27,9 @@ object VoiceProcessor {
     /**
      * 对 [input] 文件应用 [effect]，结果写入 [output] 文件。
      *
-     * @param input  裸 PCM（16-bit LE）或标准 WAV 文件（自动识别并跳过文件头）
-     * @param output 输出文件，按扩展名决定容器：`.wav` 输出 WAV，其余输出 AAC(M4A)
-     * @param config 输入 PCM 的音频参数，必须与录音时一致
+     * @param input  裸 PCM（16-bit LE）或 PCM WAV 文件（自动解析 chunk 与音频参数）
+     * @param output 输出文件：`.wav` 输出 WAV，`.m4a`/`.mp4` 输出 AAC(MPEG-4)
+     * @param config 裸 PCM 的音频参数；WAV 输入时使用文件内参数
      * @param onProgress 进度回调（0~1），在 IO 线程回调
      * @return [output]
      */
@@ -39,20 +41,27 @@ object VoiceProcessor {
         onProgress: ((Float) -> Unit)? = null,
     ): File = withContext(Dispatchers.IO) {
         require(input.exists() && input.length() > 0) { "输入文件不存在或为空: $input" }
+        val outputIsWav = output.extension.equals("wav", true)
+        require(outputIsWav || output.extension.equals("m4a", true) || output.extension.equals("mp4", true)) {
+            "不支持的输出扩展名 .${output.extension}，仅支持 .wav、.m4a、.mp4"
+        }
         output.parentFile?.mkdirs()
 
         // 第一阶段：SoundTouch 变声，输出到临时 PCM 文件
         val processedPcm = File.createTempFile("st_", ".pcm", output.parentFile)
         try {
-            val headerSkip = if (WavFile.isWav(input)) WavFile.HEADER_SIZE.toLong() else 0L
-            val totalBytes = (input.length() - headerSkip).coerceAtLeast(1)
+            val wavInfo = if (WavFile.isWav(input)) WavFile.parse(input) else null
+            val effectiveConfig = wavInfo?.config ?: config
+            val dataOffset = wavInfo?.dataOffset ?: 0L
+            val totalBytes = (wavInfo?.dataLength ?: input.length()).coerceAtLeast(1)
             // 进度权重：WAV 封装很快（变声占 95%），AAC 编码较慢（变声占 60%）
-            val stageWeight = if (output.extension.equals("wav", true)) 0.95f else 0.6f
+            val stageWeight = if (outputIsWav) 0.95f else 0.6f
 
             input.inputStream().buffered().use { ins ->
-                ins.skip(headerSkip)
+                skipFully(ins, dataOffset)
+                val pcmInput = if (wavInfo != null) LimitedInputStream(ins, wavInfo.dataLength) else ins
                 processedPcm.outputStream().buffered().use { outs ->
-                    pump(ins, outs, effect, config) { bytesRead ->
+                    pump(pcmInput, outs, effect, effectiveConfig) { bytesRead ->
                         onProgress?.invoke(bytesRead.toFloat() / totalBytes * stageWeight)
                     }
                 }
@@ -60,13 +69,14 @@ object VoiceProcessor {
 
             // 第二阶段：封装容器
             coroutineContext.ensureActive()
-            if (output.extension.equals("wav", true)) {
-                WavFile.pcmToWav(processedPcm, output, config)
+            if (outputIsWav) {
+                WavFile.pcmToWav(processedPcm, output, effectiveConfig)
                 onProgress?.invoke(1f)
             } else {
-                AacEncoder.encode(processedPcm, output, config) { p ->
+                val context = coroutineContext
+                AacEncoder.encode(processedPcm, output, effectiveConfig, onProgress = { p ->
                     onProgress?.invoke(0.6f + p * 0.4f)
-                }
+                }, ensureActive = { context.ensureActive() })
             }
             output
         } finally {
@@ -108,7 +118,9 @@ object VoiceProcessor {
         SoundTouch(config.sampleRate, config.channels).use { st ->
             st.applyEffect(effect)
 
-            val inBytes = ByteArray(CHUNK_FRAMES * config.bytesPerFrame)
+            val frameReader = PcmFrameReader(
+                input, CHUNK_FRAMES * config.bytesPerFrame, config.bytesPerFrame)
+            val inBytes = frameReader.buffer
             val inShorts = ShortArray(CHUNK_FRAMES * config.channels)
             val outShorts = ShortArray(CHUNK_FRAMES * 2 * config.channels)
             val outBytes = ByteBuffer.allocate(outShorts.size * 2).order(ByteOrder.LITTLE_ENDIAN)
@@ -127,19 +139,16 @@ object VoiceProcessor {
 
             while (true) {
                 coroutineContext.ensureActive()
-                val n = input.read(inBytes)
-                if (n <= 0) break
-                val usable = n - n % config.bytesPerFrame
-                if (usable == 0) break
+                val usable = frameReader.read()
+                if (usable < 0) break
+                readBytes = frameReader.totalBytesRead
+                onBytesRead?.invoke(readBytes)
                 ByteBuffer.wrap(inBytes, 0, usable)
                     .order(ByteOrder.LITTLE_ENDIAN)
                     .asShortBuffer()
                     .get(inShorts, 0, usable / 2)
                 st.putSamples(inShorts, usable / config.bytesPerFrame)
                 drain()
-
-                readBytes += n
-                onBytesRead?.invoke(readBytes)
             }
 
             // 冲出管线尾部残留（1.x 缺这一步，结尾会被截断）
@@ -148,5 +157,37 @@ object VoiceProcessor {
         }
         output.flush()
         return writtenBytes
+    }
+
+    private fun skipFully(input: InputStream, byteCount: Long) {
+        var remaining = byteCount
+        while (remaining > 0) {
+            val skipped = input.skip(remaining)
+            if (skipped > 0) {
+                remaining -= skipped
+            } else if (input.read() >= 0) {
+                remaining--
+            } else {
+                throw IOException("输入文件在数据段之前意外结束")
+            }
+        }
+    }
+
+    private class LimitedInputStream(input: InputStream, private var remaining: Long) :
+        FilterInputStream(input) {
+        override fun read(): Int {
+            if (remaining <= 0) return -1
+            val value = super.read()
+            if (value >= 0) remaining--
+            return value
+        }
+
+        override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+            if (remaining <= 0) return -1
+            val allowed = minOf(length.toLong(), remaining).toInt()
+            val read = super.read(buffer, offset, allowed)
+            if (read > 0) remaining -= read
+            return read
+        }
     }
 }

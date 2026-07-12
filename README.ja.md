@@ -13,7 +13,7 @@
 - 🎧 **リアルタイムモード**：マイク → ピッチシフト → イヤホン。実行中にピッチを変更可能
 - 🌊 **ストリーム処理**：`processStream` で任意の PCM ストリームを処理（ネットワーク、パイプ、ソケット）
 - 💾 **出力**：WAV（ロスレス）または AAC/M4A（圧縮、全 Android バージョンで使える公開 API）
-- 🧵 **モダン API**：Kotlin コルーチン + `StateFlow`。Java からも呼び出し可能
+- 🧵 **モダン API**：Kotlin ファーストのコルーチン + `StateFlow`。非 suspend の低レベルクラスは Java からも利用可能
 - 📦 **追加設定不要**：ネイティブコードはライブラリと一緒にビルド。`.so` の手動配置は不要。armeabi-v7a / arm64-v8a / x86 / x86_64 対応
 - 🔒 **Scoped Storage 対応**：アプリ専用ディレクトリに出力するためストレージ権限不要（Android 10+）
 
@@ -97,6 +97,8 @@ realtime.stop()
 | `VoiceEffect.MAN` | −7 | 1.0 | 1.0 | 女声 → 男声 |
 | `VoiceEffect.TOM` | +10 | 1.005 | 0.993 | トムキャット |
 
+多言語 UI では安定した識別子 `VoicePreset.entries` を列挙し、表示名をリソースから取得してください。`VoiceEffect.PRESETS` は中国語の簡易マップとして残されています。
+
 カスタムボイスは `VoiceEffect` を作るだけ：
 
 ```kotlin
@@ -115,7 +117,7 @@ val recorder = VoiceRecorder(AudioConfig(sampleRate = 16000, channels = 1))
 recorder.start(File(dir, "input.pcm"))
 val result = recorder.stop()
 
-// 変声：拡張子 .wav ならロスレス WAV、それ以外は AAC(M4A)
+// 変声：.wav はロスレス WAV、.m4a/.mp4 は AAC（MPEG-4）
 VoiceProcessor.process(
     input = result.file,
     output = File(dir, "output.wav"),
@@ -138,6 +140,8 @@ SoundTouch(sampleRate = 44100, channels = 1).use { st ->
 }
 ```
 
+WAV 入力は実際の `fmt ` / `data` chunk を解析し、ファイル内のサンプルレートとチャンネル設定を自動的に使用します。未対応の出力拡張子はコンテナとの不一致を防ぐため拒否されます。
+
 完全な API リファレンス：[docs/api.md](docs/api.md)（中国語）。
 
 ## デモ
@@ -152,7 +156,7 @@ SoundTouch(sampleRate = 44100, channels = 1).use { st ->
 
 - Android Studio（Ladybug 以降）/ AGP 8.7、Gradle 8.10（wrapper 同梱）
 - JDK 17
-- NDK と CMake 3.22 は Android Studio が自動ダウンロード
+- NDK 27.0.12077973 と CMake 3.22.1（プロジェクトと CI で固定）
 - minSdk 21、compileSdk 35
 
 ## アーキテクチャ
@@ -170,7 +174,12 @@ SoundTouch(sampleRate = 44100, channels = 1).use { st ->
 **リアルタイムモードがピッチのみなのはなぜ？**
 tempo/rate は出力の長さを変えるため、ライブ処理では入出力レートが一致せずバッファが無限に溜まるか途切れます。オフライン処理には制限はありません。
 
+## 継続的インテグレーション
+
+[Android CI](.github/workflows/android.yml) は単体テスト、Lint、Debug ビルドを実行します。変更を送信する前に `./gradlew test lint assembleDebug` をローカルで実行してください。
+
 ## ライセンス
 
 - 本プロジェクトのコード：[Apache License 2.0](LICENSE)
 - 同梱の SoundTouch ライブラリ：[LGPL v2.1](voicechanger/src/main/cpp/soundtouch/COPYING.TXT)（独立した `libsoundtouch.so` として動的リンク。商用利用の際は LGPL の条項に従ってください）
+- 第三者ライセンスの詳細：[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)

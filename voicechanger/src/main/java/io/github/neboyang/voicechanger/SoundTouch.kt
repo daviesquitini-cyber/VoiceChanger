@@ -22,14 +22,20 @@ package io.github.neboyang.voicechanger
  */
 class SoundTouch(sampleRate: Int, private val channels: Int) : AutoCloseable {
 
-    private var handle: Long
+    private var handle: Long = 0L
 
     init {
         require(sampleRate in 8000..192000) { "非法采样率: $sampleRate" }
         require(channels == 1 || channels == 2) { "声道数只支持 1 或 2: $channels" }
-        handle = nativeNew()
-        nativeSetSampleRate(handle, sampleRate)
-        nativeSetChannels(handle, channels)
+        val created = nativeNew()
+        try {
+            nativeSetSampleRate(created, sampleRate)
+            nativeSetChannels(created, channels)
+            handle = created
+        } catch (t: Throwable) {
+            nativeDelete(created)
+            throw t
+        }
     }
 
     /** 变调（不变速）。单位半音，正值升调、负值降调，建议范围 [-24, +24]。 */

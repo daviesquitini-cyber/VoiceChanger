@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="preset_none">Original</string>
+    <string name="preset_kitty">Kitty</string>
+    <string name="preset_rose">Doll</string>
+    <string name="preset_woman">Woman</string>
+    <string name="preset_uncle">Uncle</string>
+    <string name="preset_man">Man</string>
+    <string name="preset_tom">Talking cat</string>
+</resources>

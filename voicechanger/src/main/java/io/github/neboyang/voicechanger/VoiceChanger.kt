@@ -70,6 +70,9 @@ class VoiceChanger(
         fileName: String = "voice_${System.currentTimeMillis()}.m4a",
         onProgress: ((Float) -> Unit)? = null,
     ): File {
+        require(fileName.isNotBlank() && File(fileName).name == fileName) {
+            "fileName 必须是不包含路径的文件名: $fileName"
+        }
         val input = checkNotNull(lastRecording) { "还没有录音，请先 startRecording/stopRecording" }
         return VoiceProcessor.process(input, File(outputDir, fileName), effect, config, onProgress)
     }
@@ -84,7 +87,10 @@ class VoiceChanger(
 
     /** 释放资源并清理录音缓存。在页面/进程退出时调用。 */
     fun release() {
+        val activeRecording = recorder.activeOutputFile
+        recorder.cancel()
         player.release()
-        cacheDir.listFiles()?.forEach { it.delete() }
+        cacheDir.listFiles()?.filterNot { it == activeRecording }?.forEach { it.delete() }
+        lastRecording = null
     }
 }

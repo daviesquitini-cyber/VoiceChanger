@@ -43,7 +43,7 @@ data class VoiceEffect(
         /** 汤姆猫：升 10 半音，节奏微调。 */
         @JvmField val TOM = VoiceEffect(pitchSemiTones = 10f, tempo = 1.005f, rate = 0.993f)
 
-        /** 全部内置预设，便于 UI 遍历展示。 */
+        /** 带中文名称的便捷映射；跨语言 UI 推荐使用 [VoicePreset]。 */
         @JvmField val PRESETS: Map<String, VoiceEffect> = linkedMapOf(
             "原声" to NONE,
             "小猫" to KITTY,
@@ -54,4 +54,17 @@ data class VoiceEffect(
             "汤姆猫" to TOM,
         )
     }
+}
+
+/**
+ * 语言无关的内置预设标识。UI 应根据枚举值自行本地化名称，而不是依赖中文 [VoiceEffect.PRESETS] 键。
+ */
+enum class VoicePreset(val effect: VoiceEffect) {
+    NONE(VoiceEffect.NONE),
+    KITTY(VoiceEffect.KITTY),
+    ROSE(VoiceEffect.ROSE),
+    WOMAN(VoiceEffect.WOMAN),
+    UNCLE(VoiceEffect.UNCLE),
+    MAN(VoiceEffect.MAN),
+    TOM(VoiceEffect.TOM),
 }

@@ -13,7 +13,7 @@
 - 🎧 **실시간 모드**: 마이크 → 피치 시프트 → 이어폰, 실행 중 피치 조절 가능
 - 🌊 **스트림 처리**: `processStream`으로 임의의 PCM 스트림 처리(네트워크, 파이프, 소켓)
 - 💾 **출력**: WAV(무손실) 또는 AAC/M4A(압축, 모든 Android 버전에서 사용 가능한 공개 API)
-- 🧵 **모던 API**: Kotlin 코루틴 + `StateFlow`, Java 호출 가능한 진입점 유지
+- 🧵 **모던 API**: Kotlin 우선 코루틴 + `StateFlow`; suspend가 아닌 저수준 클래스는 Java에서도 사용 가능
 - 📦 **추가 설정 불필요**: 네이티브 코드는 라이브러리와 함께 빌드, `.so` 수동 배치 불필요. armeabi-v7a / arm64-v8a / x86 / x86_64 지원
 - 🔒 **Scoped Storage 대응**: 앱 전용 디렉터리에 출력하므로 저장소 권한 불필요(Android 10+)
 
@@ -97,6 +97,8 @@ realtime.stop()
 | `VoiceEffect.MAN` | −7 | 1.0 | 1.0 | 여성 → 남성 |
 | `VoiceEffect.TOM` | +10 | 1.005 | 0.993 | 톰캣 |
 
+다국어 UI에서는 안정적인 식별자인 `VoicePreset.entries`를 순회하고 리소스에서 표시 이름을 가져오세요. `VoiceEffect.PRESETS`는 중국어 편의 맵으로 유지됩니다.
+
 커스텀 보이스는 `VoiceEffect`를 만들기만 하면 됩니다:
 
 ```kotlin
@@ -115,7 +117,7 @@ val recorder = VoiceRecorder(AudioConfig(sampleRate = 16000, channels = 1))
 recorder.start(File(dir, "input.pcm"))
 val result = recorder.stop()
 
-// 변조: 확장자 .wav면 무손실 WAV, 그 외에는 AAC(M4A)
+// 변조: .wav는 무손실 WAV, .m4a/.mp4는 AAC(MPEG-4)
 VoiceProcessor.process(
     input = result.file,
     output = File(dir, "output.wav"),
@@ -138,6 +140,8 @@ SoundTouch(sampleRate = 44100, channels = 1).use { st ->
 }
 ```
 
+WAV 입력은 실제 `fmt ` / `data` 청크를 파싱하며 파일의 샘플 레이트와 채널 설정을 자동으로 사용합니다. 지원하지 않는 출력 확장자는 이름과 컨테이너 불일치를 막기 위해 거부됩니다.
+
 전체 API 레퍼런스: [docs/api.md](docs/api.md)(중국어).
 
 ## 데모
@@ -152,7 +156,7 @@ SoundTouch(sampleRate = 44100, channels = 1).use { st ->
 
 - Android Studio(Ladybug 이상) / AGP 8.7, Gradle 8.10(wrapper 내장)
 - JDK 17
-- NDK와 CMake 3.22는 Android Studio가 자동 다운로드
+- NDK 27.0.12077973 및 CMake 3.22.1(프로젝트와 CI에 고정)
 - minSdk 21, compileSdk 35
 
 ## 아키텍처
@@ -170,7 +174,12 @@ SoundTouch(sampleRate = 44100, channels = 1).use { st ->
 **실시간 모드는 왜 피치만 지원하나요?**
 tempo/rate는 출력 길이를 바꾸기 때문에 라이브 루프에서는 입출력 속도가 일치하지 않아 버퍼가 무한히 쌓이거나 끊깁니다. 오프라인 처리에는 제한이 없습니다.
 
+## 지속적 통합
+
+[Android CI](.github/workflows/android.yml)는 단위 테스트, Lint 및 Debug 빌드를 실행합니다. 변경 사항을 제출하기 전에 `./gradlew test lint assembleDebug`를 로컬에서 실행하세요.
+
 ## 라이선스
 
 - 프로젝트 코드: [Apache License 2.0](LICENSE)
 - 내장 SoundTouch 라이브러리: [LGPL v2.1](voicechanger/src/main/cpp/soundtouch/COPYING.TXT)(독립적인 `libsoundtouch.so`로 동적 링크. 상용 이용 시 LGPL 조항을 준수하세요)
+- 전체 서드파티 고지: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)

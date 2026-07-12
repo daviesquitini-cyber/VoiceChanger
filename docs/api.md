@@ -20,9 +20,9 @@ class VoiceChanger(context: Context, config: AudioConfig = AudioConfig())
 | `startRecording()` | 开始录音（需已授予 RECORD_AUDIO），中间文件在应用 cache 目录 |
 | `pauseRecording()` / `resumeRecording()` | 暂停/恢复 |
 | `suspend stopRecording(): RecordingResult` | 停止并返回录音结果 |
-| `suspend changeVoice(effect, fileName, onProgress): File` | 对最近录音变声；`fileName` 以 `.wav` 结尾输出 WAV，否则输出 AAC(M4A)；默认输出到 `getExternalFilesDir(Music)/voicechanger/`（无需存储权限） |
+| `suspend changeVoice(effect, fileName, onProgress): File` | 对最近录音变声；`.wav` 输出 WAV，`.m4a`/`.mp4` 输出 AAC(MPEG-4)，其他扩展名会被拒绝；默认输出到 `getExternalFilesDir(Music)/voicechanger/`（无需存储权限） |
 | `play(file) { onCompletion }` / `stopPlaying()` | 播放/停止 |
-| `release()` | 释放播放器并清理录音缓存 |
+| `release()` | 取消仍在进行的录音、释放播放器并清理录音缓存 |
 
 异常约定：所有失败以异常抛出（协程内可直接 try/catch 或 `runCatching`），不再使用 1.x 的消息码回调。
 
@@ -36,6 +36,7 @@ class VoiceRecorder(config: AudioConfig = AudioConfig())
 fun start(outputFile: File)                  // @RequiresPermission(RECORD_AUDIO)
 fun pause() / resume()
 suspend fun stop(): RecordingResult          // 录音线程中的异常在此抛出
+fun cancel()                                  // 幂等、非阻塞；取消录音并删除未完成文件
 
 val state: StateFlow<State>                  // IDLE / RECORDING / PAUSED
 val amplitude: StateFlow<Float>              // 实时音量 RMS，0~1
@@ -49,8 +50,8 @@ val amplitude: StateFlow<Float>              // 实时音量 RMS，0~1
 
 ```kotlin
 suspend fun process(
-    input: File,                       // 裸 PCM 或标准 WAV（自动识别）
-    output: File,                      // .wav → WAV；其他 → AAC(M4A)
+    input: File,                       // 裸 PCM 或 PCM WAV（自动解析 RIFF chunk）
+    output: File,                      // .wav → WAV；.m4a/.mp4 → AAC(MPEG-4)
     effect: VoiceEffect,
     config: AudioConfig = AudioConfig(),
     onProgress: ((Float) -> Unit)? = null,   // 0~1，IO 线程回调
@@ -73,7 +74,7 @@ suspend fun processStream(
 class RealtimeVoiceChanger(config: AudioConfig = AudioConfig())
 
 fun start()                          // @RequiresPermission(RECORD_AUDIO)
-fun stop()                           // 幂等，毫秒级返回
+fun stop()                           // 幂等；主动解除音频阻塞并最多等待 2 秒
 
 var pitchSemiTones: Float            // [-24, 24]，运行中修改实时生效
 var onError: ((Throwable) -> Unit)?  // 音频线程异常回调，此后自动停止
@@ -98,7 +99,7 @@ data class VoiceEffect(
 )
 ```
 
-预设：`NONE` / `KITTY` / `ROSE` / `WOMAN` / `UNCLE` / `MAN` / `TOM`；`PRESETS: Map<String, VoiceEffect>` 提供带中文名的全量列表，便于 UI 遍历。参数含义与调参方法见[音色调参指南](voice-tuning.md)。
+预设：`NONE` / `KITTY` / `ROSE` / `WOMAN` / `UNCLE` / `MAN` / `TOM`。推荐 UI 遍历语言无关的 `VoicePreset.entries` 并自行本地化名称；`PRESETS: Map<String, VoiceEffect>` 保留中文便捷映射。参数含义与调参方法见[音色调参指南](voice-tuning.md)。
 
 ## SoundTouch
 

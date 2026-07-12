@@ -1,7 +1,9 @@
 package io.github.neboyang.voicechanger
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Test
+import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
@@ -40,4 +42,65 @@ class WavFileTest {
         assertEquals(16000 * 4, buf.getInt(28))
         assertEquals(4, buf.getShort(32).toInt())
     }
+
+    @Test
+    fun `parse finds data after non-audio chunks`() {
+        val file = tempFile("chunked", ".wav")
+        try {
+            val bytes = ByteBuffer.allocate(60).order(ByteOrder.LITTLE_ENDIAN).apply {
+                put("RIFF".toByteArray(Charsets.US_ASCII))
+                putInt(52)
+                put("WAVE".toByteArray(Charsets.US_ASCII))
+                put("fmt ".toByteArray(Charsets.US_ASCII))
+                putInt(16)
+                putShort(1)
+                putShort(1)
+                putInt(16000)
+                putInt(32000)
+                putShort(2)
+                putShort(16)
+                put("JUNK".toByteArray(Charsets.US_ASCII))
+                putInt(4)
+                putInt(0x12345678)
+                put("data".toByteArray(Charsets.US_ASCII))
+                putInt(4)
+                putShort(100)
+                putShort(-100)
+            }.array()
+            file.writeBytes(bytes)
+
+            val info = WavFile.parse(file)
+
+            assertEquals(AudioConfig(16000, 1), info.config)
+            assertEquals(56L, info.dataOffset)
+            assertEquals(4L, info.dataLength)
+        } finally {
+            file.delete()
+        }
+    }
+
+    @Test
+    fun `parse rejects unsupported sample format`() {
+        val file = tempFile("float", ".wav")
+        try {
+            val wav = WavFile.header(4, AudioConfig()).also {
+                ByteBuffer.wrap(it).order(ByteOrder.LITTLE_ENDIAN).putShort(20, 3)
+            }
+            file.writeBytes(wav + ByteArray(4))
+
+            assertThrows(IllegalArgumentException::class.java) { WavFile.parse(file) }
+        } finally {
+            file.delete()
+        }
+    }
+
+    @Test
+    fun `header rejects partial PCM frame`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            WavFile.header(3, AudioConfig(sampleRate = 44100, channels = 1))
+        }
+    }
+
+    private fun tempFile(prefix: String, suffix: String): File =
+        File.createTempFile("voicechanger_${prefix}_", suffix)
 }

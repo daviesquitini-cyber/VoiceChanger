@@ -1,33 +1,41 @@
 package io.github.neboyang.voicechanger
 
+import java.io.EOFException
 import java.io.File
+import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
-/**
- * 标准 44 字节 WAV（RIFF/PCM）头的读写工具。
- * 修复了 1.x 版本中头部采样率与实际数据不一致的问题——
- * 头部字段一律取自 [AudioConfig]，与录音/处理链路共用同一配置。
- */
+/** WAV 数据段及音频参数。 */
+data class WavInfo(
+    val config: AudioConfig,
+    val dataOffset: Long,
+    val dataLength: Long,
+)
+
+/** RIFF/PCM WAV 的读写工具。 */
 object WavFile {
 
-    /** 标准 PCM WAV 头长度。 */
+    /** 本库生成的标准 PCM WAV 头长度。输入 WAV 不要求固定为该长度。 */
     const val HEADER_SIZE = 44
 
     /** 生成 44 字节 WAV 头。[dataLength] 为 PCM 数据段的字节数。 */
     fun header(dataLength: Int, config: AudioConfig): ByteArray {
+        require(dataLength >= 0 && dataLength % config.bytesPerFrame == 0) {
+            "PCM 数据长度必须按帧对齐: $dataLength"
+        }
         val buf = ByteBuffer.allocate(HEADER_SIZE).order(ByteOrder.LITTLE_ENDIAN)
         buf.put("RIFF".toByteArray(Charsets.US_ASCII))
-        buf.putInt(36 + dataLength)                       // RIFF chunk size
+        buf.putInt(36 + dataLength)
         buf.put("WAVE".toByteArray(Charsets.US_ASCII))
         buf.put("fmt ".toByteArray(Charsets.US_ASCII))
-        buf.putInt(16)                                    // fmt chunk size
-        buf.putShort(1)                                   // audio format = PCM
+        buf.putInt(16)
+        buf.putShort(1)
         buf.putShort(config.channels.toShort())
         buf.putInt(config.sampleRate)
         buf.putInt(config.bytesPerSecond)
-        buf.putShort(config.bytesPerFrame.toShort())      // block align
-        buf.putShort(16)                                  // bits per sample
+        buf.putShort(config.bytesPerFrame.toShort())
+        buf.putShort(16)
         buf.put("data".toByteArray(Charsets.US_ASCII))
         buf.putInt(dataLength)
         return buf.array()
@@ -37,18 +45,96 @@ object WavFile {
     fun pcmToWav(pcm: File, wav: File, config: AudioConfig) {
         val dataLength = pcm.length()
         require(dataLength <= Int.MAX_VALUE - 36) { "PCM 文件过大: $dataLength 字节" }
+        require(dataLength % config.bytesPerFrame == 0L) { "PCM 文件末尾不是完整音频帧" }
+        wav.parentFile?.mkdirs()
         wav.outputStream().buffered().use { out ->
             out.write(header(dataLength.toInt(), config))
             pcm.inputStream().buffered().use { it.copyTo(out) }
         }
     }
 
-    /** 判断文件是否为 WAV（RIFF....WAVE 魔数）。 */
+    /** 判断文件是否具有 RIFF/WAVE 魔数。更严格的格式校验请使用 [parse]。 */
     fun isWav(file: File): Boolean {
-        if (file.length() < HEADER_SIZE) return false
+        if (file.length() < 12) return false
         val head = ByteArray(12)
-        file.inputStream().use { if (it.read(head) != 12) return false }
-        return head.copyOfRange(0, 4).contentEquals("RIFF".toByteArray(Charsets.US_ASCII)) &&
-                head.copyOfRange(8, 12).contentEquals("WAVE".toByteArray(Charsets.US_ASCII))
+        file.inputStream().use { input ->
+            var offset = 0
+            while (offset < head.size) {
+                val read = input.read(head, offset, head.size - offset)
+                if (read < 0) return false
+                offset += read
+            }
+        }
+        return String(head, 0, 4, Charsets.US_ASCII) == "RIFF" &&
+            String(head, 8, 4, Charsets.US_ASCII) == "WAVE"
+    }
+
+    /**
+     * 解析 PCM WAV 的 chunk，支持 `LIST`、`JUNK`、扩展 `fmt ` 等非固定 44 字节头。
+     * 当前处理链只接受 16-bit PCM、单/双声道。
+     */
+    fun parse(file: File): WavInfo {
+        require(isWav(file)) { "不是有效的 RIFF/WAVE 文件: $file" }
+        RandomAccessFile(file, "r").use { raf ->
+            raf.seek(12)
+            var config: AudioConfig? = null
+            var dataOffset = -1L
+            var dataLength = -1L
+
+            while (raf.filePointer + 8 <= raf.length()) {
+                val idBytes = ByteArray(4)
+                raf.readFully(idBytes)
+                val chunkId = String(idBytes, Charsets.US_ASCII)
+                val chunkSize = readUInt32Le(raf)
+                val chunkStart = raf.filePointer
+                val chunkEnd = chunkStart + chunkSize
+                require(chunkEnd >= chunkStart && chunkEnd <= raf.length()) {
+                    "WAV chunk 越界: $chunkId, size=$chunkSize"
+                }
+
+                when (chunkId) {
+                    "fmt " -> {
+                        require(chunkSize >= 16) { "WAV fmt chunk 过短: $chunkSize" }
+                        val audioFormat = readUInt16Le(raf)
+                        val channels = readUInt16Le(raf)
+                        val sampleRate = readUInt32Le(raf)
+                        val byteRate = readUInt32Le(raf)
+                        val blockAlign = readUInt16Le(raf)
+                        val bitsPerSample = readUInt16Le(raf)
+                        require(audioFormat == 1) { "仅支持 PCM WAV，format=$audioFormat" }
+                        require(bitsPerSample == 16) { "仅支持 16-bit WAV，实际为 $bitsPerSample-bit" }
+                        require(sampleRate <= Int.MAX_VALUE) { "WAV 采样率越界: $sampleRate" }
+                        val parsed = AudioConfig(sampleRate.toInt(), channels)
+                        require(blockAlign == parsed.bytesPerFrame) { "WAV blockAlign 不一致: $blockAlign" }
+                        require(byteRate == parsed.bytesPerSecond.toLong()) { "WAV byteRate 不一致: $byteRate" }
+                        config = parsed
+                    }
+                    "data" -> {
+                        dataOffset = chunkStart
+                        dataLength = chunkSize
+                    }
+                }
+
+                if (config != null && dataOffset >= 0) break
+                raf.seek(chunkEnd + (chunkSize and 1L))
+            }
+
+            val parsedConfig = requireNotNull(config) { "WAV 缺少 fmt chunk" }
+            require(dataOffset >= 0) { "WAV 缺少 data chunk" }
+            require(dataLength % parsedConfig.bytesPerFrame == 0L) { "WAV data 长度不是完整音频帧" }
+            return WavInfo(parsedConfig, dataOffset, dataLength)
+        }
+    }
+
+    private fun readUInt16Le(raf: RandomAccessFile): Int = try {
+        java.lang.Short.reverseBytes(raf.readShort()).toInt() and 0xffff
+    } catch (e: EOFException) {
+        throw IllegalArgumentException("WAV 文件意外结束", e)
+    }
+
+    private fun readUInt32Le(raf: RandomAccessFile): Long = try {
+        Integer.reverseBytes(raf.readInt()).toLong() and 0xffff_ffffL
+    } catch (e: EOFException) {
+        throw IllegalArgumentException("WAV 文件意外结束", e)
     }
 }

@@ -13,7 +13,7 @@ An Android voice-changing library built on [SoundTouch](https://codeberg.org/sou
 - 🎧 **Real-time mode**: microphone → pitch shift → headphones, adjustable while running
 - 🌊 **Stream processing**: `processStream` works on any PCM stream (network, pipe, socket)
 - 💾 **Output**: WAV (lossless) or AAC/M4A (compressed, public APIs available on all Android versions)
-- 🧵 **Modern API**: Kotlin coroutines + `StateFlow`, Java-callable entry points preserved
+- 🧵 **Modern API**: Kotlin-first coroutines + `StateFlow`; non-suspending low-level classes remain Java-callable
 - 📦 **Zero extra setup**: native code builds with the library — no manual `.so` files; armeabi-v7a / arm64-v8a / x86 / x86_64
 - 🔒 **Scoped-storage friendly**: writes to app-specific directories, no storage permission needed on Android 10+
 
@@ -97,6 +97,8 @@ Real-time mode supports pitch shifting only (tempo/rate change the output durati
 | `VoiceEffect.MAN` | −7 | 1.0 | 1.0 | Female → male |
 | `VoiceEffect.TOM` | +10 | 1.005 | 0.993 | Tom-cat |
 
+For localized UIs, iterate over the stable `VoicePreset.entries` identifiers and resolve display names from resources. `VoiceEffect.PRESETS` remains a Chinese convenience map.
+
 Custom voices are just a `VoiceEffect`:
 
 ```kotlin
@@ -115,7 +117,7 @@ val recorder = VoiceRecorder(AudioConfig(sampleRate = 16000, channels = 1))
 recorder.start(File(dir, "input.pcm"))
 val result = recorder.stop()
 
-// Transform: a .wav extension produces lossless WAV, anything else AAC (M4A)
+// Transform: .wav produces lossless WAV; .m4a/.mp4 produces AAC in MPEG-4
 VoiceProcessor.process(
     input = result.file,
     output = File(dir, "output.wav"),
@@ -138,6 +140,8 @@ SoundTouch(sampleRate = 44100, channels = 1).use { st ->
 }
 ```
 
+WAV input is parsed by its actual `fmt ` and `data` chunks, and its sample rate/channel configuration is used automatically. Unknown output extensions are rejected to prevent mismatched names and containers.
+
 Full API reference: [docs/api.md](docs/api.md) (Chinese).
 
 ## Demo
@@ -152,7 +156,7 @@ The repository ships a runnable demo (`app` module): recording controls, one-tap
 
 - Android Studio (Ladybug+) / AGP 8.7, Gradle 8.10 (wrapper included)
 - JDK 17
-- NDK and CMake 3.22 are downloaded automatically by Android Studio
+- NDK 27.0.12077973 and CMake 3.22.1 (pinned in the project and CI)
 - minSdk 21, compileSdk 35
 
 ## Architecture
@@ -170,7 +174,12 @@ Library sources live under `voicechanger/src/main/java/io/github/neboyang/voicec
 **Why is real-time mode pitch-only?**
 tempo/rate change the output duration — in a live loop the input and output rates must match, otherwise buffers grow without bound or underrun. Offline processing has no such limit.
 
+## Continuous integration
+
+[Android CI](.github/workflows/android.yml) runs unit tests, Lint, and the Debug build. Before submitting changes, run `./gradlew test lint assembleDebug` locally.
+
 ## License
 
 - Project code: [Apache License 2.0](LICENSE)
 - Bundled SoundTouch library: [LGPL v2.1](voicechanger/src/main/cpp/soundtouch/COPYING.TXT) (dynamically linked as a standalone `libsoundtouch.so`; observe the LGPL for commercial use)
+- Full third-party notice: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)

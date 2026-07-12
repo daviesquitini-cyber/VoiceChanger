@@ -23,7 +23,10 @@ internal object AacEncoder {
         config: AudioConfig,
         bitRate: Int = 96_000,
         onProgress: ((Float) -> Unit)? = null,
+        ensureActive: () -> Unit = {},
     ) {
+        require(pcmFile.length() % config.bytesPerFrame == 0L) { "PCM 文件末尾不是完整音频帧" }
+        outFile.parentFile?.mkdirs()
         val mime = MediaFormat.MIMETYPE_AUDIO_AAC
         val format = MediaFormat.createAudioFormat(mime, config.sampleRate, config.channels).apply {
             setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC)
@@ -31,71 +34,95 @@ internal object AacEncoder {
             setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, PCM_CHUNK_BYTES)
         }
 
-        val codec = MediaCodec.createEncoderByType(mime)
-        codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-        val muxer = MediaMuxer(outFile.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
-
+        var codec: MediaCodec? = null
+        var muxer: MediaMuxer? = null
+        var codecStarted = false
         var trackIndex = -1
         var muxerStarted = false
+        var completed = false
         val bufferInfo = MediaCodec.BufferInfo()
         val totalBytes = pcmFile.length().coerceAtLeast(1)
         var readBytes = 0L
         var totalFrames = 0L
         var inputDone = false
 
-        codec.start()
         try {
+            val activeCodec = MediaCodec.createEncoderByType(mime).also { codec = it }
+            activeCodec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+            val activeMuxer = MediaMuxer(
+                outFile.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4).also { muxer = it }
+            activeCodec.start()
+            codecStarted = true
+
             pcmFile.inputStream().buffered().use { input ->
                 val chunk = ByteArray(PCM_CHUNK_BYTES)
                 while (true) {
+                    ensureActive()
                     if (!inputDone) {
-                        val inIndex = codec.dequeueInputBuffer(TIMEOUT_US)
+                        val inIndex = activeCodec.dequeueInputBuffer(TIMEOUT_US)
                         if (inIndex >= 0) {
-                            val inBuf = codec.getInputBuffer(inIndex)!!
+                            val inBuf = checkNotNull(activeCodec.getInputBuffer(inIndex))
                             inBuf.clear()
-                            val maxRead = minOf(chunk.size, inBuf.remaining())
-                            val n = input.read(chunk, 0, maxRead)
+                            val capacity = minOf(chunk.size, inBuf.remaining())
+                            val maxRead = capacity - capacity % config.bytesPerFrame
+                            check(maxRead > 0) { "AAC 编码器输入缓冲区小于一个 PCM 帧" }
+                            val n = readChunk(input, chunk, maxRead)
                             val ptsUs = totalFrames * 1_000_000L / config.sampleRate
                             if (n < 0) {
-                                codec.queueInputBuffer(
+                                activeCodec.queueInputBuffer(
                                     inIndex, 0, 0, ptsUs, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
                                 inputDone = true
                             } else {
+                                check(n % config.bytesPerFrame == 0) { "PCM 文件末尾不是完整音频帧" }
                                 inBuf.put(chunk, 0, n)
-                                codec.queueInputBuffer(inIndex, 0, n, ptsUs, 0)
+                                activeCodec.queueInputBuffer(inIndex, 0, n, ptsUs, 0)
                                 totalFrames += n / config.bytesPerFrame
                                 readBytes += n
-                                onProgress?.invoke(readBytes.toFloat() / totalBytes)
+                                onProgress?.invoke((readBytes.toFloat() / totalBytes).coerceAtMost(1f))
                             }
                         }
                     }
 
-                    val outIndex = codec.dequeueOutputBuffer(bufferInfo, TIMEOUT_US)
+                    val outIndex = activeCodec.dequeueOutputBuffer(bufferInfo, TIMEOUT_US)
                     if (outIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
                         check(!muxerStarted) { "输出格式变化了多次" }
-                        trackIndex = muxer.addTrack(codec.outputFormat)
-                        muxer.start()
+                        trackIndex = activeMuxer.addTrack(activeCodec.outputFormat)
+                        activeMuxer.start()
                         muxerStarted = true
                     } else if (outIndex >= 0) {
-                        val outBuf = codec.getOutputBuffer(outIndex)!!
+                        val outBuf = checkNotNull(activeCodec.getOutputBuffer(outIndex))
                         if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0) {
                             bufferInfo.size = 0 // CSD 已包含在 outputFormat 中
                         }
                         if (bufferInfo.size > 0 && muxerStarted) {
                             outBuf.position(bufferInfo.offset)
                             outBuf.limit(bufferInfo.offset + bufferInfo.size)
-                            muxer.writeSampleData(trackIndex, outBuf, bufferInfo)
+                            activeMuxer.writeSampleData(trackIndex, outBuf, bufferInfo)
                         }
-                        codec.releaseOutputBuffer(outIndex, false)
+                        activeCodec.releaseOutputBuffer(outIndex, false)
                         if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) break
                     }
                 }
             }
+            completed = true
         } finally {
-            runCatching { codec.stop() }
-            codec.release()
-            runCatching { if (muxerStarted) muxer.stop() }
-            muxer.release()
+            if (codecStarted) runCatching { codec?.stop() }
+            runCatching { codec?.release() }
+            if (muxerStarted) runCatching { muxer?.stop() }
+            runCatching { muxer?.release() }
+            if (!completed) outFile.delete()
         }
+    }
+
+    /** 文件流读取到缓冲区满或 EOF，避免短读取破坏 PCM 帧边界。 */
+    private fun readChunk(input: java.io.InputStream, buffer: ByteArray, length: Int): Int {
+        var offset = 0
+        while (offset < length) {
+            val read = input.read(buffer, offset, length - offset)
+            if (read < 0) return if (offset == 0) -1 else offset
+            if (read == 0) continue
+            offset += read
+        }
+        return offset
     }
 }

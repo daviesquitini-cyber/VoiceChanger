@@ -30,25 +30,33 @@ class VoicePlayer {
     @Throws(IOException::class)
     fun play(file: File) {
         stop()
-        player = MediaPlayer().apply {
-            setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_MEDIA)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                    .build())
-            setDataSource(file.absolutePath)
-            setOnCompletionListener {
-                stop()
-                onCompletion?.invoke()
+        require(file.isFile && file.length() > 0) { "音频文件不存在或为空: $file" }
+        val created = MediaPlayer()
+        try {
+            created.apply {
+                setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build())
+                setDataSource(file.absolutePath)
+                setOnCompletionListener {
+                    stop()
+                    onCompletion?.invoke()
+                }
+                setOnErrorListener { _, _, _ ->
+                    stop()
+                    true
+                }
+                prepare()
+                start()
             }
-            setOnErrorListener { _, _, _ ->
-                stop()
-                true
-            }
-            prepare()
-            start()
+            player = created
+            currentFile = file
+        } catch (t: Throwable) {
+            runCatching { created.release() }
+            throw t
         }
-        currentFile = file
     }
 
     /** 停止播放并释放当前 MediaPlayer。可重复调用。 */

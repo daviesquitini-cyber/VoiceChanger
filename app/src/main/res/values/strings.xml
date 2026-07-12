@@ -22,4 +22,11 @@
     <string name="btn_realtime_start">开始实时变声</string>
     <string name="btn_realtime_stop">停止实时变声</string>
     <string name="status_realtime">🎧 实时变声中…拖动「音调」滑杆实时生效</string>
+    <string name="preset_none">原声</string>
+    <string name="preset_kitty">小猫</string>
+    <string name="preset_rose">娃娃音</string>
+    <string name="preset_woman">女声</string>
+    <string name="preset_uncle">大叔</string>
+    <string name="preset_man">男声</string>
+    <string name="preset_tom">汤姆猫</string>
 </resources>

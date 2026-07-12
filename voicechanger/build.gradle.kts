@@ -9,6 +9,7 @@ plugins {
 android {
     namespace = "io.github.neboyang.voicechanger"
     compileSdk = 35
+    ndkVersion = "27.0.12077973"
 
     defaultConfig {
         minSdk = 21
@@ -56,8 +57,8 @@ kotlin {
 }
 
 dependencies {
-    implementation(libs.kotlinx.coroutines.android)
-    implementation(libs.androidx.annotation)
+    api(libs.kotlinx.coroutines.android)
+    api(libs.androidx.annotation)
     testImplementation(libs.junit)
 }
 

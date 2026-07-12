@@ -19,6 +19,7 @@ import com.google.android.material.slider.Slider
 import io.github.neboyang.voicechanger.RealtimeVoiceChanger
 import io.github.neboyang.voicechanger.VoiceChanger
 import io.github.neboyang.voicechanger.VoiceEffect
+import io.github.neboyang.voicechanger.VoicePreset
 import io.github.neboyang.voicechanger.VoiceRecorder
 import kotlinx.coroutines.launch
 
@@ -151,11 +152,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupEffectChips() {
         val chipGroup = findViewById<ChipGroup>(R.id.chipGroup)
-        VoiceEffect.PRESETS.forEach { (name, effect) ->
+        VoicePreset.entries.forEach { preset ->
             chipGroup.addView(Chip(this).apply {
-                text = name
+                text = getString(presetName(preset))
                 isCheckable = true
                 setOnClickListener {
+                    val effect = preset.effect
                     sliderPitch.value = effect.pitchSemiTones
                     sliderTempo.value = effect.tempo
                     sliderRate.value = effect.rate
@@ -163,6 +165,16 @@ class MainActivity : AppCompatActivity() {
             })
         }
         (chipGroup.getChildAt(0) as Chip).isChecked = true
+    }
+
+    private fun presetName(preset: VoicePreset): Int = when (preset) {
+        VoicePreset.NONE -> R.string.preset_none
+        VoicePreset.KITTY -> R.string.preset_kitty
+        VoicePreset.ROSE -> R.string.preset_rose
+        VoicePreset.WOMAN -> R.string.preset_woman
+        VoicePreset.UNCLE -> R.string.preset_uncle
+        VoicePreset.MAN -> R.string.preset_man
+        VoicePreset.TOM -> R.string.preset_tom
     }
 
     private fun setupSliders() {

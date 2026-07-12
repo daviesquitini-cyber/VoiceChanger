@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="preset_none">원음</string>
+    <string name="preset_kitty">고양이</string>
+    <string name="preset_rose">인형 목소리</string>
+    <string name="preset_woman">여성</string>
+    <string name="preset_uncle">저음</string>
+    <string name="preset_man">남성</string>
+    <string name="preset_tom">말하는 고양이</string>
+</resources>

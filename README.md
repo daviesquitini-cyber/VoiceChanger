@@ -13,7 +13,7 @@
 - 🎧 **实时变声**：麦克风 → 变调 → 耳机，边说边听，音调运行中实时可调
 - 🌊 **流式处理**：`processStream` 支持任意 PCM 流（网络流、管道、Socket）
 - 💾 **输出**：WAV（无损）或 AAC/M4A（压缩，全 Android 版本可用的公开 API）
-- 🧵 **现代 API**：Kotlin 协程 + `StateFlow`，也保留 Java 可调用的入口
+- 🧵 **现代 API**：Kotlin 优先的协程 + `StateFlow` API；非挂起的底层类可从 Java 调用
 - 📦 **零额外依赖**：native 层随库源码编译，无需手动放 `.so`；支持 armeabi-v7a / arm64-v8a / x86 / x86_64
 - 🔒 **合规存储**：输出到应用专属目录，无需存储权限，兼容 Android 10+ 分区存储
 
@@ -97,6 +97,8 @@ realtime.stop()
 | `VoiceEffect.MAN` | −7 | 1.0 | 1.0 | 女声 → 男声 |
 | `VoiceEffect.TOM` | +10 | 1.005 | 0.993 | 汤姆猫 |
 
+跨语言 UI 推荐遍历 `VoicePreset.entries`，并使用资源文件显示本地化名称；`VoiceEffect.PRESETS` 仅作为中文便捷映射保留。
+
 自定义音色只需构造 `VoiceEffect`：
 
 ```kotlin
@@ -115,7 +117,7 @@ val recorder = VoiceRecorder(AudioConfig(sampleRate = 16000, channels = 1))
 recorder.start(File(dir, "input.pcm"))
 val result = recorder.stop()
 
-// 变声：输出 .wav 得到无损 WAV，其他扩展名得到 AAC(M4A)
+// 变声：.wav 输出无损 WAV；.m4a/.mp4 输出 AAC(MPEG-4)
 VoiceProcessor.process(
     input = result.file,
     output = File(dir, "output.wav"),
@@ -138,6 +140,8 @@ SoundTouch(sampleRate = 44100, channels = 1).use { st ->
 }
 ```
 
+WAV 输入会解析实际的 `fmt ` / `data` chunk，并自动采用文件中的采样率和声道；未知输出扩展名会直接报错，避免生成扩展名与容器不一致的文件。
+
 完整接口说明见 [docs/api.md](docs/api.md)。
 
 ## Demo
@@ -152,7 +156,7 @@ SoundTouch(sampleRate = 44100, channels = 1).use { st ->
 
 - Android Studio（Ladybug 及以上）/ AGP 8.7、Gradle 8.10（wrapper 已内置）
 - JDK 17
-- NDK 与 CMake 3.22 由 Android Studio 按需自动下载
+- NDK 27.0.12077973 与 CMake 3.22.1（版本已在工程和 CI 中固定）
 - minSdk 21，compileSdk 35
 
 ## 工程结构
@@ -174,7 +178,8 @@ VoiceChanger/
 │           ├── SoundTouch.kt            # SoundTouch Kotlin 封装
 │           ├── VoicePlayer.kt           # 播放器
 │           ├── AacEncoder.kt            # PCM→AAC(M4A)（MediaCodec）
-│           ├── WavFile.kt               # WAV 头读写
+│           ├── WavFile.kt               # RIFF/WAV chunk 解析与封装
+│           ├── PcmFrameReader.kt         # 短读取与 PCM 帧边界整理
 │           └── AudioConfig.kt           # 采样率/声道配置
 ├── app/                           # Demo
 └── docs/                          # 调参指南、API 文档
@@ -193,7 +198,12 @@ tempo/rate 会改变输出时长——实时链路里输入输出速率必须一
 **机器音（robot）怎么做？**
 机器音本质是环形调制/共振峰处理，不在 SoundTouch 的能力范围内，见[调参指南](docs/voice-tuning.md#机器音)中的说明。
 
+## 持续集成
+
+仓库的 [Android CI](.github/workflows/android.yml) 会执行单元测试、Lint 和 Debug 构建。提交前建议本地运行 `./gradlew test lint assembleDebug`。
+
 ## 许可证
 
 - 本项目代码：[Apache License 2.0](LICENSE)
 - 内置的 SoundTouch 库：[LGPL v2.1](voicechanger/src/main/cpp/soundtouch/COPYING.TXT)（以独立 `libsoundtouch.so` 动态链接方式使用；商用请遵循 LGPL 条款）
+- 完整第三方说明：[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)

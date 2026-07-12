@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="preset_none">原音</string>
+    <string name="preset_kitty">子猫</string>
+    <string name="preset_rose">人形ボイス</string>
+    <string name="preset_woman">女性</string>
+    <string name="preset_uncle">低音</string>
+    <string name="preset_man">男性</string>
+    <string name="preset_tom">トーキングキャット</string>
+</resources>

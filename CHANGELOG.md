@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### 完善
+- PCM 流支持任意短读取并跨块保留残帧；EOF 半帧会明确报错
+- WAV 输入改为解析 RIFF chunk，支持 `LIST`/`JUNK`/扩展 `fmt `，并校验格式与数据边界
+- 录音和实时变声增加并发启动保护、主动解除阻塞读取与可靠资源清理
+- 实时 AudioTrack 支持短写重试和错误码检查
+- AAC 编码支持协程取消检查，所有初始化失败路径均释放资源并删除不完整输出
+- JNI 入口统一捕获 native 异常，SoundTouch 构造失败时释放 native handle
+- 公开的协程和 AndroidX 注解依赖改为 Maven `api` 依赖
+- 增加 PCM 帧边界、WAV chunk、参数校验测试及 Android CI
+- 增加 SoundTouch 第三方许可证声明
+
 ## 2.1.0 (2026-07)
 
 ### 新增

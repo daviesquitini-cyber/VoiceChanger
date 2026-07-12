@@ -11,7 +11,6 @@ import androidx.annotation.RequiresPermission
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlin.concurrent.thread
 import kotlin.math.sqrt
 
 /**
@@ -55,7 +54,10 @@ class RealtimeVoiceChanger(val config: AudioConfig = AudioConfig()) {
         }
 
     @Volatile private var stopRequested = false
+    private val lifecycleLock = Any()
     private var worker: Thread? = null
+    @Volatile private var activeRecord: AudioRecord? = null
+    @Volatile private var activeTrack: AudioTrack? = null
 
     /**
      * 启动实时变声。
@@ -64,56 +66,74 @@ class RealtimeVoiceChanger(val config: AudioConfig = AudioConfig()) {
      */
     @RequiresPermission(Manifest.permission.RECORD_AUDIO)
     fun start() {
-        check(!_isRunning.value) { "实时变声已在运行" }
+        synchronized(lifecycleLock) {
+            check(worker == null && !_isRunning.value) { "实时变声已在运行或正在停止" }
 
-        val channelIn = if (config.channels == 1)
-            AudioFormat.CHANNEL_IN_MONO else AudioFormat.CHANNEL_IN_STEREO
-        val channelOut = if (config.channels == 1)
-            AudioFormat.CHANNEL_OUT_MONO else AudioFormat.CHANNEL_OUT_STEREO
+            val channelIn = if (config.channels == 1)
+                AudioFormat.CHANNEL_IN_MONO else AudioFormat.CHANNEL_IN_STEREO
+            val channelOut = if (config.channels == 1)
+                AudioFormat.CHANNEL_OUT_MONO else AudioFormat.CHANNEL_OUT_STEREO
 
-        val minIn = AudioRecord.getMinBufferSize(
-            config.sampleRate, channelIn, AudioFormat.ENCODING_PCM_16BIT)
-        val minOut = AudioTrack.getMinBufferSize(
-            config.sampleRate, channelOut, AudioFormat.ENCODING_PCM_16BIT)
-        check(minIn > 0 && minOut > 0) { "设备不支持该音频配置: $config" }
+            val minIn = AudioRecord.getMinBufferSize(
+                config.sampleRate, channelIn, AudioFormat.ENCODING_PCM_16BIT)
+            val minOut = AudioTrack.getMinBufferSize(
+                config.sampleRate, channelOut, AudioFormat.ENCODING_PCM_16BIT)
+            check(minIn > 0 && minOut > 0) { "设备不支持该音频配置: $config" }
 
-        val record = AudioRecord(
-            MediaRecorder.AudioSource.VOICE_COMMUNICATION,
-            config.sampleRate, channelIn, AudioFormat.ENCODING_PCM_16BIT, minIn * 2)
-        if (record.state != AudioRecord.STATE_INITIALIZED) {
-            record.release()
-            throw IllegalStateException("AudioRecord 初始化失败，请确认已授予 RECORD_AUDIO 权限")
+            var record: AudioRecord? = null
+            var track: AudioTrack? = null
+            try {
+                record = AudioRecord(
+                    MediaRecorder.AudioSource.VOICE_COMMUNICATION,
+                    config.sampleRate, channelIn, AudioFormat.ENCODING_PCM_16BIT, minIn * 2)
+                if (record.state != AudioRecord.STATE_INITIALIZED) {
+                    throw IllegalStateException("AudioRecord 初始化失败，请确认已授予 RECORD_AUDIO 权限")
+                }
+
+                track = AudioTrack(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build(),
+                    AudioFormat.Builder()
+                        .setSampleRate(config.sampleRate)
+                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                        .setChannelMask(channelOut)
+                        .build(),
+                    minOut * 2,
+                    AudioTrack.MODE_STREAM,
+                    AudioManager.AUDIO_SESSION_ID_GENERATE)
+                if (track.state != AudioTrack.STATE_INITIALIZED) {
+                    throw IllegalStateException("AudioTrack 初始化失败")
+                }
+
+                stopRequested = false
+                activeRecord = record
+                activeTrack = track
+                _isRunning.value = true
+                val readyRecord = checkNotNull(record)
+                val readyTrack = checkNotNull(track)
+                worker = Thread({ loop(readyRecord, readyTrack) }, "RealtimeVoiceChanger").also { it.start() }
+            } catch (t: Throwable) {
+                runCatching { record?.release() }
+                runCatching { track?.release() }
+                activeRecord = null
+                activeTrack = null
+                _isRunning.value = false
+                throw t
+            }
         }
-
-        val track = AudioTrack(
-            AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_MEDIA)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                .build(),
-            AudioFormat.Builder()
-                .setSampleRate(config.sampleRate)
-                .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                .setChannelMask(channelOut)
-                .build(),
-            minOut * 2,
-            AudioTrack.MODE_STREAM,
-            AudioManager.AUDIO_SESSION_ID_GENERATE)
-        if (track.state != AudioTrack.STATE_INITIALIZED) {
-            record.release()
-            track.release()
-            throw IllegalStateException("AudioTrack 初始化失败")
-        }
-
-        stopRequested = false
-        _isRunning.value = true
-        worker = thread(name = "RealtimeVoiceChanger") { loop(record, track) }
     }
 
     /** 停止实时变声，等待音频线程退出（毫秒级）。可重复调用。 */
     fun stop() {
         stopRequested = true
-        worker?.join(2000)
-        worker = null
+        val runningWorker = synchronized(lifecycleLock) { worker }
+        runCatching { activeRecord?.stop() }
+        runCatching { activeTrack?.stop() }
+        if (runningWorker != null && runningWorker !== Thread.currentThread()) {
+            runningWorker.join(2000)
+        }
     }
 
     private fun loop(record: AudioRecord, track: AudioTrack) {
@@ -144,12 +164,12 @@ class RealtimeVoiceChanger(val config: AudioConfig = AudioConfig()) {
                     while (true) {
                         val frames = st.receiveSamples(out)
                         if (frames <= 0) break
-                        track.write(out, 0, frames * config.channels)
+                        writeFully(track, out, frames * config.channels)
                     }
                 }
             }
         } catch (t: Throwable) {
-            onError?.invoke(t)
+            if (!stopRequested) runCatching { onError?.invoke(t) }
         } finally {
             runCatching { record.stop() }
             record.release()
@@ -157,6 +177,21 @@ class RealtimeVoiceChanger(val config: AudioConfig = AudioConfig()) {
             track.release()
             _amplitude.value = 0f
             _isRunning.value = false
+            synchronized(lifecycleLock) {
+                if (activeRecord === record) activeRecord = null
+                if (activeTrack === track) activeTrack = null
+                if (worker === Thread.currentThread()) worker = null
+            }
+        }
+    }
+
+    private fun writeFully(track: AudioTrack, buffer: ShortArray, length: Int) {
+        var offset = 0
+        while (offset < length && !stopRequested) {
+            val written = track.write(buffer, offset, length - offset)
+            if (written < 0) throw IllegalStateException("AudioTrack.write 失败: $written")
+            if (written == 0) continue
+            offset += written
         }
     }
 
