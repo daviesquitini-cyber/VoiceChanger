@@ -18,4 +18,8 @@
     <string name="label_rate">速率 rate：×%1$.2f（变速且变调）</string>
     <string name="toast_permission">需要录音权限才能使用变声功能</string>
     <string name="result_path">输出文件：%1$s</string>
+    <string name="label_realtime">实时变声（流式处理，请佩戴耳机防止啸叫）</string>
+    <string name="btn_realtime_start">开始实时变声</string>
+    <string name="btn_realtime_stop">停止实时变声</string>
+    <string name="status_realtime">🎧 实时变声中…拖动「音调」滑杆实时生效</string>
 </resources>

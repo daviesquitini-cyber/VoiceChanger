@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.1.0 (2026-07)
+
+### 新增
+- **实时变声** `RealtimeVoiceChanger`：麦克风 → SoundTouch → 耳机，边说边听；`pitchSemiTones` 运行中实时调整；`VOICE_COMMUNICATION` 采集源（系统回声消除）
+- **流式处理** `VoiceProcessor.processStream(InputStream, OutputStream, ...)`：任意 PCM 流变声（网络流、管道、Socket 等场景）
+- Demo 新增「实时变声」入口，音调滑杆实时生效
+- README 增加英文（README.en.md）、日文（README.ja.md）、韩文（README.ko.md）版本
+
 ## 2.0.0 (2026-07)
 
 **完全重写。** 针对 issues [#1](https://github.com/neboyang/VoiceChanger/issues/1)、[#2](https://github.com/neboyang/VoiceChanger/issues/2)、[#3](https://github.com/neboyang/VoiceChanger/issues/3) 及大量历史缺陷。

@@ -55,7 +55,38 @@ suspend fun process(
     config: AudioConfig = AudioConfig(),
     onProgress: ((Float) -> Unit)? = null,   // 0~1，IO 线程回调
 ): File
+
+// 流式版本：任意 PCM 流 → 变声后的裸 PCM 流（网络流、管道、Socket 等）
+suspend fun processStream(
+    input: InputStream,                // 裸 PCM（16-bit LE），不含 WAV 头
+    output: OutputStream,
+    effect: VoiceEffect,
+    config: AudioConfig = AudioConfig(),
+): Long                                // 写出的字节数
 ```
+
+## RealtimeVoiceChanger
+
+实时（流式）变声：麦克风 → SoundTouch → 扬声器/耳机，边说边听。
+
+```kotlin
+class RealtimeVoiceChanger(config: AudioConfig = AudioConfig())
+
+fun start()                          // @RequiresPermission(RECORD_AUDIO)
+fun stop()                           // 幂等，毫秒级返回
+
+var pitchSemiTones: Float            // [-24, 24]，运行中修改实时生效
+var onError: ((Throwable) -> Unit)?  // 音频线程异常回调，此后自动停止
+val isRunning: StateFlow<Boolean>
+val amplitude: StateFlow<Float>      // 输入音量 0~1
+```
+
+限制与建议：
+
+- **请佩戴耳机**，否则会啸叫回授
+- 实时模式只支持变调（pitch）；tempo/rate 会改变输出时长，实时链路中会导致缓冲堆积或断流
+- 采集源为 `VOICE_COMMUNICATION`（多数设备启用系统回声消除）；端到端延迟约 100~300ms
+- 与 `VoiceRecorder` 都占用麦克风，勿同时启动
 
 ## VoiceEffect
 
@@ -135,7 +166,7 @@ object WavFile {
 
 ## 线程模型
 
-- `VoiceRecorder` 内部使用独立采集线程；`state`/`amplitude` 可在任意线程收集
-- `VoiceProcessor.process` 在 `Dispatchers.IO` 执行，`onProgress` 在 IO 线程回调（更新 UI 请自行切主线程）
+- `VoiceRecorder` / `RealtimeVoiceChanger` 内部使用独立音频线程；`state`/`amplitude`/`isRunning` 可在任意线程收集
+- `VoiceProcessor.process` / `processStream` 在 `Dispatchers.IO` 执行，`onProgress` 在 IO 线程回调（更新 UI 请自行切主线程）
 - `VoicePlayer` / `VoiceChanger` 请在主线程调用
 - `SoundTouch` 实例限单线程使用

@@ -1,13 +1,17 @@
 # VoiceChanger
 
-基于 [SoundTouch](https://codeberg.org/soundtouch/soundtouch) 的 Android 变声库：录音 → 变声（男变女、女变男、萝莉、大叔、汤姆猫…）→ 保存/播放，全流程开箱即用。
+**中文** | [English](README.en.md) | [日本語](README.ja.md) | [한국어](README.ko.md)
 
-> **2.0 完全重写**：Kotlin + 协程 API、内置 SoundTouch 2.4.1 源码用 CMake 从源编译（支持 arm64-v8a 等全 ABI）、内置 JNI 绑定（不再缺 `net.surina.soundtouch.SoundTouch`，见 [#2](https://github.com/neboyang/VoiceChanger/issues/2)）、输出 AAC/M4A 与 WAV（替代已被 Android 移除的隐藏 API `AmrInputStream`）、附带完整 Demo（见 [#3](https://github.com/neboyang/VoiceChanger/issues/3)）与[调参指南](docs/voice-tuning.md)（见 [#1](https://github.com/neboyang/VoiceChanger/issues/1)）。迁移说明见 [CHANGELOG](CHANGELOG.md)。
+基于 [SoundTouch](https://codeberg.org/soundtouch/soundtouch) 的 Android 变声库：录音 → 变声（男变女、女变男、萝莉、大叔、汤姆猫…）→ 保存/播放，支持**实时变声**（边说边听），全流程开箱即用。
+
+> **2.x 完全重写**：Kotlin + 协程 API、内置 SoundTouch 2.4.1 源码用 CMake 从源编译（支持 arm64-v8a 等全 ABI）、内置 JNI 绑定（不再缺 `net.surina.soundtouch.SoundTouch`，见 [#2](https://github.com/neboyang/VoiceChanger/issues/2)）、输出 AAC/M4A 与 WAV（替代已被 Android 移除的隐藏 API `AmrInputStream`）、附带完整 Demo（见 [#3](https://github.com/neboyang/VoiceChanger/issues/3)）与[调参指南](docs/voice-tuning.md)（见 [#1](https://github.com/neboyang/VoiceChanger/issues/1)）。迁移说明见 [CHANGELOG](CHANGELOG.md)。
 
 ## 特性
 
 - 🎙 **录音**：`AudioRecord` 流式写盘，支持暂停/恢复，实时音量回调，长录音不占内存
 - 🎭 **变声**：音调（半音）、节拍（变速不变调）、速率（变速变调）三参数自由组合，内置 7 种预设
+- 🎧 **实时变声**：麦克风 → 变调 → 耳机，边说边听，音调运行中实时可调
+- 🌊 **流式处理**：`processStream` 支持任意 PCM 流（网络流、管道、Socket）
 - 💾 **输出**：WAV（无损）或 AAC/M4A（压缩，全 Android 版本可用的公开 API）
 - 🧵 **现代 API**：Kotlin 协程 + `StateFlow`，也保留 Java 可调用的入口
 - 📦 **零额外依赖**：native 层随库源码编译，无需手动放 `.so`；支持 armeabi-v7a / arm64-v8a / x86 / x86_64
@@ -29,7 +33,7 @@ dependencyResolutionManagement {
 
 // app/build.gradle.kts
 dependencies {
-    implementation("com.github.neboyang:VoiceChanger:2.0.0")
+    implementation("com.github.neboyang:VoiceChanger:2.1.0")
 }
 ```
 
@@ -68,6 +72,18 @@ lifecycleScope.launch {
 changer.recorder.state.collect { state -> ... }       // IDLE / RECORDING / PAUSED
 changer.recorder.amplitude.collect { amp -> ... }     // 0~1，可直接绑定进度条
 ```
+
+### 实时变声（边说边听）
+
+```kotlin
+val realtime = RealtimeVoiceChanger()
+realtime.pitchSemiTones = 7f      // 运行中可随时调整，实时生效
+realtime.start()                  // 请佩戴耳机，防止啸叫
+...
+realtime.stop()
+```
+
+实时模式只支持变调（tempo/rate 会改变输出时长，实时链路中不可用）；采集源为 `VOICE_COMMUNICATION`，多数设备自动启用回声消除。
 
 ## 内置音效预设
 
@@ -108,7 +124,10 @@ VoiceProcessor.process(
     onProgress = { p -> ... },     // 0~1
 )
 
-// 也可以直接使用 SoundTouch 处理任意 PCM 流
+// 流式变声：任意 PCM 流 → 变声后的 PCM 流
+VoiceProcessor.processStream(inputStream, outputStream, VoiceEffect.WOMAN)
+
+// 也可以直接使用 SoundTouch 处理任意 PCM 块
 SoundTouch(sampleRate = 44100, channels = 1).use { st ->
     st.setPitchSemiTones(6f)
     st.putSamples(pcmChunk)
@@ -123,7 +142,7 @@ SoundTouch(sampleRate = 44100, channels = 1).use { st ->
 
 ## Demo
 
-仓库自带可运行的演示工程（`app` 模块）：录音控制、7 种预设一键切换、三参数滑杆实时微调、变声进度与播放。
+仓库自带可运行的演示工程（`app` 模块）：录音控制、7 种预设一键切换、三参数滑杆实时微调、变声进度与播放、实时变声。
 
 ```bash
 ./gradlew :app:installDebug
@@ -147,28 +166,29 @@ VoiceChanger/
 │       │   ├── soundtouch-jni.cpp # JNI 绑定
 │       │   └── CMakeLists.txt
 │       └── java/io/github/neboyang/voicechanger/
-│           ├── VoiceChanger.kt    # 门面：录音→变声→播放
-│           ├── VoiceRecorder.kt   # PCM 录音（流式写盘）
-│           ├── VoiceProcessor.kt  # 变声管线（SoundTouch → WAV/M4A）
-│           ├── VoiceEffect.kt     # 音效参数与预设
-│           ├── SoundTouch.kt      # SoundTouch Kotlin 封装
-│           ├── VoicePlayer.kt     # 播放器
-│           ├── AacEncoder.kt      # PCM→AAC(M4A)（MediaCodec）
-│           ├── WavFile.kt         # WAV 头读写
-│           └── AudioConfig.kt     # 采样率/声道配置
+│           ├── VoiceChanger.kt          # 门面：录音→变声→播放
+│           ├── VoiceRecorder.kt         # PCM 录音（流式写盘）
+│           ├── VoiceProcessor.kt        # 离线/流式变声管线
+│           ├── RealtimeVoiceChanger.kt  # 实时变声（麦克风→耳机）
+│           ├── VoiceEffect.kt           # 音效参数与预设
+│           ├── SoundTouch.kt            # SoundTouch Kotlin 封装
+│           ├── VoicePlayer.kt           # 播放器
+│           ├── AacEncoder.kt            # PCM→AAC(M4A)（MediaCodec）
+│           ├── WavFile.kt               # WAV 头读写
+│           └── AudioConfig.kt           # 采样率/声道配置
 ├── app/                           # Demo
 └── docs/                          # 调参指南、API 文档
 ```
 
-数据流：`AudioRecord → PCM 文件 → SoundTouch(变调/变速) → flush → WAV 或 MediaCodec AAC → MediaPlayer`
+数据流：`AudioRecord → PCM 文件 → SoundTouch(变调/变速) → flush → WAV 或 MediaCodec AAC → MediaPlayer`；实时模式：`AudioRecord → SoundTouch → AudioTrack`。
 
 ## FAQ
 
 **为什么输出 M4A 而不是 1.x 的 AMR？**
 1.x 依赖隐藏 API `android.media.AmrInputStream`，普通工程无法编译，且该类已在 Android 9 中移除。AAC 音质更好、体积相近，且走公开 API。需要无损可输出 WAV。
 
-**能实时变声（边说边听）吗？**
-当前版本是离线管线（录完再处理）。SoundTouch 本身支持流式处理，把 `SoundTouch` 类接到 `AudioRecord`→`AudioTrack` 实时链路即可，在规划中（欢迎 PR）。
+**实时变声为什么只能变调？**
+tempo/rate 会改变输出时长——实时链路里输入输出速率必须一致，否则缓冲区会无限堆积或断流。离线处理无此限制。
 
 **机器音（robot）怎么做？**
 机器音本质是环形调制/共振峰处理，不在 SoundTouch 的能力范围内，见[调参指南](docs/voice-tuning.md#机器音)中的说明。
