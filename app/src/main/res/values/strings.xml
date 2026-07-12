@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">变声器 Demo</string>
+    <string name="status_idle">待机，点击「开始录音」</string>
+    <string name="status_recording">● 录音中…</string>
+    <string name="status_paused">‖ 已暂停</string>
+    <string name="status_processing">变声处理中…</string>
+    <string name="status_playing">▶ 播放中…</string>
+    <string name="status_done">播放完成</string>
+    <string name="btn_record">开始录音</string>
+    <string name="btn_pause">暂停</string>
+    <string name="btn_resume">继续</string>
+    <string name="btn_stop">停止</string>
+    <string name="btn_process">变声并播放</string>
+    <string name="label_effects">选择音效（选中后可用下方滑杆微调）</string>
+    <string name="label_pitch">音调 pitch：%1$+.1f 半音</string>
+    <string name="label_tempo">节拍 tempo：×%1$.2f（变速不变调）</string>
+    <string name="label_rate">速率 rate：×%1$.2f（变速且变调）</string>
+    <string name="toast_permission">需要录音权限才能使用变声功能</string>
+    <string name="result_path">输出文件：%1$s</string>
+</resources>

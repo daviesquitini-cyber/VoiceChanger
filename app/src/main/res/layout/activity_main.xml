@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <TextView
+            android:id="@+id/tvStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/status_idle"
+            android:textAppearance="?attr/textAppearanceTitleMedium" />
+
+        <com.google.android.material.progressindicator.LinearProgressIndicator
+            android:id="@+id/amplitudeBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:max="100"
+            app:trackCornerRadius="4dp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnRecord"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/btn_record" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnPause"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+                android:enabled="false"
+                android:text="@string/btn_pause" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnStop"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+                android:enabled="false"
+                android:text="@string/btn_stop" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="@string/label_effects"
+            android:textAppearance="?attr/textAppearanceTitleSmall" />
+
+        <com.google.android.material.chip.ChipGroup
+            android:id="@+id/chipGroup"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            app:selectionRequired="true"
+            app:singleSelection="true" />
+
+        <TextView
+            android:id="@+id/tvPitch"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp" />
+
+        <com.google.android.material.slider.Slider
+            android:id="@+id/sliderPitch"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:value="0"
+            android:valueFrom="-16"
+            android:valueTo="16" />
+
+        <TextView
+            android:id="@+id/tvTempo"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
+
+        <com.google.android.material.slider.Slider
+            android:id="@+id/sliderTempo"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:value="1"
+            android:valueFrom="0.5"
+            android:valueTo="2" />
+
+        <TextView
+            android:id="@+id/tvRate"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
+
+        <com.google.android.material.slider.Slider
+            android:id="@+id/sliderRate"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:value="1"
+            android:valueFrom="0.5"
+            android:valueTo="2" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnProcess"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:enabled="false"
+            android:text="@string/btn_process" />
+
+        <com.google.android.material.progressindicator.LinearProgressIndicator
+            android:id="@+id/processProgress"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:max="100"
+            android:visibility="invisible"
+            app:trackCornerRadius="4dp" />
+
+        <TextView
+            android:id="@+id/tvResult"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:textAppearance="?attr/textAppearanceBodySmall"
+            android:textIsSelectable="true" />
+    </LinearLayout>
+</ScrollView>
