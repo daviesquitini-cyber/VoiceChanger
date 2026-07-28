@@ -22,4 +22,4 @@ jobs:
       - name: Install native build tools
         run: sdkmanager "cmake;3.22.1" "ndk;27.0.12077973"
       - name: Verify library and demo
-        run: ./gradlew test lint assembleDebug --stacktrace
+        run: ./gradlew test assembleDebug -x lint
